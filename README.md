@@ -11,8 +11,6 @@
 # About this project
 This project is an open source project initiated by the 2020-2021 SITES President and the newly created SITES sub organization named CLOUD. This project is licensed under the terms of the [![License](https://img.shields.io/npm/l/redoc.svg)](https://github.com/johncs2d/SITES/blob/main/LICENSE)  License. See [license](https://github.com/Institute-of-Computing/enigma-computing-backend/blob/main/LICENSE) for details.
 
-# Language Used
-
 
 # Contributing
 Please be sure to review the project [contributing guidelines]() to learn how to help the project.
