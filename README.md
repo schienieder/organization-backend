@@ -1,6 +1,6 @@
 
 
-# Student Association of Computing Enigma Backend
+# Student Association of Computing - Backend
 [![Build Status](https://travis-ci.com/Institute-of-Computing/enigma-computing-backend.svg?branch=main)](https://github.com/Institute-of-Computing/enigma-computing-backend) [![Build Status](https://img.shields.io/badge/python-3.9.x-green)](https://travis-ci.com/Institute-of-Computing/enigma-computing-backend) [![Build Status](https://img.shields.io/badge/django%20version-3.1.5-blue)](https://travis-ci.com/Institute-of-Computing/enigma-computing-backend) [![Build Status](https://img.shields.io/badge/djangrestframework-3.12.2-red)](https://travis-ci.com/Institute-of-Computing/enigma-computing-backend) [![Build Status](https://img.shields.io/badge/docs-0%25-brightgreen)](https://travis-ci.com/Institute-of-Computing/enigma-computing-backend)
 
 <div align="center">
