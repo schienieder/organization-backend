@@ -10,9 +10,44 @@ from api.models import Votes
 from api.models import PollCandidate
 from api.models import MainPoll
 from api.models import Attendance
+from api.models import Event
+from api.models import Reply
+from api.models import Post
+
+
+class BadgesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Badges
+        fields = ["id", "condition", "name", "date_received"]
+
+        extra_kwargs = {"id": {"read_only": True}}
+
+    def create(self, validated_data):
+
+        badges = Badges.objects.create(
+            condition=validated_data["condition"],
+            name=validated_data["name"],
+            date_received=validated_data["date_received"],
+        )
+
+        badges.save()
+
+        return badges
+
+    def update(self, instance, validated_data):
+
+        for (key, value) in validated_data.items():
+            setattr(instance, key, value)
+
+        instance.save()
+
+        return instance
 
 
 class UserSerializer(serializers.ModelSerializer):
+
+    badges = BadgesSerializer(read_only=True, many=True)
+
     class Meta:
         model = User
         fields = [
@@ -25,6 +60,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_active",
             "is_verified",
             "is_teacher",
+            "badges",
         ]
 
         extra_kwargs = {
@@ -40,6 +76,8 @@ class UserSerializer(serializers.ModelSerializer):
             email=validated_data["email"],
             first_name=validated_data["first_name"],
             last_name=validated_data["last_name"],
+            is_teacher=validated_data["is_teacher"],
+            is_verified=validated_data["is_verified"],
         )
 
         user.set_password(validated_data["password"])
@@ -70,38 +108,9 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
 
-class BadgesSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Badges
-        fields = ["id", "condition", "name", "date_created"]
-
-        extra_kwargs = {"id": {"read_only": True}}
-
-    def create(self, validated_data):
-
-        badges = Badges.objects.create(
-            condition=validated_data["condition"],
-            name=validated_data["name"],
-            date_created=validated_data["date_created"],
-        )
-
-        badges.save()
-
-        return badges
-
-    def update(self, instance, validated_data):
-
-        for (key, value) in validated_data.items():
-            setattr(instance, key, value)
-
-        instance.save()
-
-        return instance
-
-
 class UserInfoSerializer(serializers.ModelSerializer):
 
-    badges = BadgesSerializer(read_only=True, many=True)
+    user = serializers.RelatedField(source="user", read_only=False)
 
     class Meta:
         model = UserInfo
@@ -116,7 +125,7 @@ class UserInfoSerializer(serializers.ModelSerializer):
             "profile_image",
             "background_image",
             "read_me",
-            "badges",
+            "user",
         ]
 
         extra_kwargs = {"id": {"read_only": True}}
@@ -152,7 +161,7 @@ class UserInfoSerializer(serializers.ModelSerializer):
 
 class OrgApplicationSerializer(serializers.ModelSerializer):
 
-    user = serializers.RelatedField(source="owner", read_only=True)
+    owner = serializers.RelatedField(source="owner", read_only=False)
 
     class Meta:
         model = OrgApplication
@@ -163,7 +172,7 @@ class OrgApplicationSerializer(serializers.ModelSerializer):
             "is_accepted",
             "decline_reason",
             "date_accepted",
-            "user",
+            "owner",
         ]
 
         extra_kwargs = {"id": {"read_only": True}}
@@ -176,6 +185,7 @@ class OrgApplicationSerializer(serializers.ModelSerializer):
             is_accepted=validated_data["is_accepted"],
             decline_reason=validated_data["decline_reason"],
             date_accepted=validated_data["date_accepted"],
+            owner=pk=validated_data["user"]
         )
 
         orgApp.save()
@@ -194,7 +204,7 @@ class OrgApplicationSerializer(serializers.ModelSerializer):
 
 class OrgSerializer(serializers.ModelSerializer):
 
-    owner = serializers.RelatedField(source="owner", read_only=True)
+    owner = serializers.RelatedField(source="owner", read_only=False)
 
     class Meta:
         model = OrgApplication
@@ -256,16 +266,15 @@ class OrgSerializer(serializers.ModelSerializer):
 
 class VotesSerializer(serializers.ModelSerializer):
 
-    owner = serializers.RelatedField(source="owner", read_only=True)
+    owner = serializers.RelatedField(source="owner", read_only=False)
 
     class Meta:
-        Votes = Votes
+        model = Votes
         fields = [
             "id",
             "date_voted",
             "validated",
-            "ipv4_address",
-            "ipv6_address",
+            "ip_address",
             "owner",
         ]
 
@@ -276,8 +285,7 @@ class VotesSerializer(serializers.ModelSerializer):
         votesMaker = Votes.objects.create(
             date_voted=validated_data["date_voted"],
             validated=validated_data["validated"],
-            ipv4_address=validated_data["ipv4_address"],
-            ipv6_address=validated_data["ipv6_address"],
+            ip_address=validated_data["ip_address"],
             owner=User.objects.get(pk=validated_data["user"]),
         )
 
@@ -297,11 +305,10 @@ class VotesSerializer(serializers.ModelSerializer):
 
 class PollCandidateSerializer(serializers.ModelSerializer):
 
-    user = serializers.RelatedField(source="user", read_only=True)
-    votes = VotesSerializer(read_only=True, many=True)
+    user = serializers.RelatedField(source="user", read_only=False)
 
     class Meta:
-        Votes = Votes
+        model = PollCandidate
         fields = [
             "id",
             "position",
@@ -309,15 +316,14 @@ class PollCandidateSerializer(serializers.ModelSerializer):
             "is_disqualified",
             "is_winner",
             "date_created",
-            "user",
-            "votes",
+            "user"
         ]
 
         extra_kwargs = {"id": {"read_only": True}}
 
     def create(self, validated_data):
 
-        pollMaker = Votes.objects.create(
+        pollMaker = PollCandidate.objects.create(
             position=validated_data["position"],
             partylist=validated_data["partylist"],
             is_disqualified=validated_data["is_disqualified"],
@@ -342,11 +348,11 @@ class PollCandidateSerializer(serializers.ModelSerializer):
 
 class MainPollSerializer(serializers.ModelSerializer):
 
-    owner = serializers.RelatedField(source="owner", read_only=True)
+    owner = serializers.RelatedField(source="owner", read_only=False)
     candidates = PollCandidateSerializer(read_only=True, many=True)
 
     class Meta:
-        Votes = MainPoll
+        model = MainPoll
         fields = [
             "id",
             "title",
@@ -398,41 +404,162 @@ class MainPollSerializer(serializers.ModelSerializer):
 
 class AttendanceSerializer(serializers.ModelSerializer):
 
-    owner = serializers.RelatedField(source="owner", read_only=True)
+    owner = serializers.RelatedField(source="owner", read_only=False)
 
     class Meta:
-        Votes = Attendance
+        model = Attendance
+        fields = ["id", "date", "time", "ip_address", "owner"]
+
+        extra_kwargs = {"id": {"read_only": True}}
+
+    def create(self, validated_data):
+
+        attendanceMaker = Attendance.objects.create(
+            date=validated_data["date"],
+            time=validated_data["time"],
+            ip_address=validated_data["ip_address"],
+            owner=User.objects.get(pk=validated_data["owner"])
+        )
+
+        attendanceMaker.save()
+
+        return attendanceMaker
+
+    def update(self, instance, validated_data):
+
+        for (key, value) in validated_data.items():
+            setattr(instance, key, value)
+
+        instance.save()
+
+        return instance
+
+
+class EventSerializer(serializers.ModelSerializer):
+
+    org = serializers.RelatedField(source="org")
+    event_attendance = AttendanceSerializer(read_only=True, many=True)
+
+    class Meta:
+        model = Event
         fields = [
             "id",
-            "date",
-            "time",
-            "ipv4_address",
-            "ipv6_address",
-            "owner"
+            "name",
+            "start_date",
+            "end_date",
+            "ended",
+            "canceled",
+            "started",
+            "description",
+            "org",
+            "event_attendance",
         ]
 
         extra_kwargs = {"id": {"read_only": True}}
 
     def create(self, validated_data):
 
-        pollMaker = Attendance.objects.create(
-            date=validated_data["date"],
-            time=validated_data["time"],
-            ipv4_address=validated_data["ipv4_address"],
-            ipv6_address=validated_data["ipv6_address"],
-            owner=validated_data["owner"],
-            date_close=validated_data["date_close"],
-            finished=validated_data["finished"],
-            is_deleted=validated_data["is_deleted"],
-            notes=validated_data["notes"],
-            conditions=validated_data["conditions"],
-            org=Org.objects.get(pk=validated_data["org"]),
-            owner=User.objects.get(pk=validated_data["owner"]),
+        EventMaker = Event.objects.create(
+            name=validated_data["name"],
+            start_date=validated_data["start_date"],
+            end_date=validated_data["end_date"],
+            ended=validated_data["ended"],
+            canceled=validated_data["canceled"],
+            started=validated_data["started"],
+            description=validated_data["description"],
+            org=Org.objects.get(pk=validated_data["org"])
         )
 
-        pollMaker.save()
+        EventMaker.save()
 
-        return pollMaker
+        return EventMaker
+
+    def update(self, instance, validated_data):
+
+        for (key, value) in validated_data.items():
+            setattr(instance, key, value)
+
+        instance.save()
+
+        return instance
+
+
+class ReplySerializer(serializers.ModelSerializer):
+
+    user = serializers.RelatedField(source="user")
+    reply_replies = ReplySerializer(read_only=True, many=True)
+
+    class Meta:
+        model = Reply
+        fields = ["id", "content", "date_replied", "hearts", "user", "reply_replies"]
+
+        extra_kwargs = {"id": {"read_only": True}}
+
+    def get_reply_replies(self):
+        reply_replies = super(ReplySerializer, self).get_reply_replies()
+        reply_replies["reply_replies"] = ReplySerializer(many=True)
+        return reply_replies
+
+    def create(self, validated_data):
+
+        replyMaker = Event.objects.create(
+            content=validated_data["content"],
+            date_replied=validated_data["date_replied"],
+            hearts=validated_data["hearts"],
+            user=User.objects.get(pk=validated_data["owner"]),
+        )
+
+        replyMaker.save()
+
+        return replyMaker
+
+    def update(self, instance, validated_data):
+
+        for (key, value) in validated_data.items():
+            setattr(instance, key, value)
+
+        instance.save()
+
+        return instance
+
+
+class PostSerializer(serializers.ModelSerializer):
+
+    user = serializers.RelatedField(source="user")
+
+    class Meta:
+        model = Post
+        fields = [
+            "id",
+            "admin_only",
+            "date_posted",
+            "content",
+            "is_pinned",
+            "hearts",
+            "views",
+            "is_private",
+            "user",
+        ]
+
+        extra_kwargs = {"id": {"read_only": True}}
+
+    def create(self, validated_data):
+
+        postMaker = Post.objects.create(
+            admin_only=validated_data["admin_only"],
+            date_posted=validated_data["date_posted"],
+            content=validated_data["content"],
+            is_pinned=validated_data["is_pinned"],
+            hearts=validated_data["hearts"],
+            views=validated_data["views"],
+            is_private=validated_data["is_private"],
+            user=User.objects.get(pk=validated_data["user"]),
+            org=Org.objects.get(pk=validated_data["org"])
+        )
+
+        postMaker.save()
+
+        return postMaker
 
     def update(self, instance, validated_data):
 
