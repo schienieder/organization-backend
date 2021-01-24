@@ -1,0 +1,8 @@
+.pyc
+.env
+DockerFile
+/env
+runner.sh
+/proxy
+docker-compose-deploy.yml
+docker-compose.yml
