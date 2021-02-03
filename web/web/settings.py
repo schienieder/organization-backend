@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import timedelta
 import os
 
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -22,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/3.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "samplesecret123"
+SECRET_KEY = "asdsadasdsadsadsadsadsa"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -50,6 +51,8 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     )
 }
+
+AUTH_USER_MODEL = "api.MyUser"
 
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS")
 EMAIL_HOST = os.environ.get("EMAIL_HOST")

@@ -1,40 +1,7 @@
 from django.db import models
 import secrets
 import uuid
-from django.contrib.auth.models import BaseUserManager, AbstractBaseUser
-
-
-class MyUserManager(BaseUserManager):
-    def create_user(self, email, date_of_birth, password=None):
-        """
-        Creates and saves a User with the given email, date of
-        birth and password.
-        """
-        if not email:
-            raise ValueError("Users must have an email address")
-
-        user = self.model(
-            email=self.normalize_email(email),
-            date_of_birth=date_of_birth,
-        )
-
-        user.set_password(password)
-        user.save(using=self._db)
-        return user
-
-    def create_superuser(self, email, date_of_birth, password=None):
-        """
-        Creates and saves a superuser with the given email, date of
-        birth and password.
-        """
-        user = self.create_user(
-            email,
-            password=password,
-            date_of_birth=date_of_birth,
-        )
-        user.is_admin = True
-        user.save(using=self._db)
-        return user
+from django.contrib.auth.models import AbstractUser
 
 
 class PaymentPlans(models.Model):
@@ -45,14 +12,20 @@ class PaymentPlans(models.Model):
     name = models.CharField(max_length=50)
     features = models.JSONField()
 
+    class Meta:
+        ordering = ["-amount"]
+
 
 class Badges(models.Model):
     date_received = models.DateTimeField()
     name = models.CharField(max_length=50)
     condition = models.JSONField()
 
+    class Meta:
+        ordering = ["-date_received"]
 
-class User(AbstractBaseUser):
+
+class MyUser(AbstractUser):
     is_verified = models.BooleanField(default=False)
     email = models.EmailField(
         verbose_name="email address",
@@ -64,31 +37,6 @@ class User(AbstractBaseUser):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["username"]
 
-    objects = MyUserManager()
-
-    def __str__(self):
-        return self.email
-
-    def has_perm(self, perm, obj=None):
-        "Does the user have a specific permission?"
-        # Simplest possible answer: Yes, always
-        return True
-
-    def has_module_perms(self, app_label):
-        "Does the user have permissions to view the app `app_label`?"
-        # Simplest possible answer: Yes, always
-        return True
-
-    @property
-    def is_staff(self):
-        "Is the user a member of staff?"
-        # Simplest possible answer: All admins are staff
-        return self.is_admin
-
-    @property
-    def is_educator(self):
-        return self.is_teacher
-
 
 class CurrentUserPlan(models.Model):
     date_started = models.DateField()
@@ -98,7 +46,7 @@ class CurrentUserPlan(models.Model):
     date_canceled = models.DateField()
     renew_date = models.DateField()
     owner = models.ForeignKey(
-        User,
+        MyUser,
         verbose_name=("Current User Plan"),
         on_delete=models.CASCADE,
         related_name="plan_owner",
@@ -110,11 +58,20 @@ class CurrentUserPlan(models.Model):
         related_name="plan_choosed",
     )
 
+    class Meta:
+        ordering = ["-expiration_date"]
+
 
 class UserAuth(models.Model):
     one_time_code = models.CharField(max_length=6)
     expiration = models.DurationField()
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_auth")
+    owner = models.ForeignKey(
+        MyUser, on_delete=models.CASCADE, related_name="user_auth"
+    )
+
+    class Meta:
+        ordering = ["-expiration"]
+        indexes = [models.Index(fields=["one_time_code"], name="user_otc")]
 
 
 class UserInfo(models.Model):
@@ -124,19 +81,26 @@ class UserInfo(models.Model):
         ("3", "Third Year"),
         ("4", "Fourth Year"),
         ("5", "Fift Year"),
+        ("6", "None"),
         ("0", "Graduated"),
     ]
 
-    year_level = models.CharField(max_length=1, choices=YEAR_LEVEL)
+    year_level = models.CharField(
+        max_length=1, choices=YEAR_LEVEL, null=True, default=6
+    )
     course = models.CharField(max_length=50, null=True)
     section = models.CharField(max_length=20, null=True)
     student_id = models.CharField(max_length=10, null=True)
-    date_of_birth = models.DateField()
-    age = models.IntegerField()
+    date_of_birth = models.DateField(null=True)
+    age = models.IntegerField(null=True)
     profile_image = models.CharField(max_length=250, null=True)
     background_image = models.CharField(max_length=250, null=True)
     read_me = models.CharField(max_length=250, null=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_info")
+    user = models.ForeignKey(MyUser, on_delete=models.CASCADE, related_name="user_info")
+
+    class Meta:
+        ordering = ["-year_level"]
+        indexes = [models.Index(fields=["year_level"], name="stud_year_level")]
 
 
 class Code(models.Model):
@@ -147,7 +111,7 @@ class Code(models.Model):
     expired = models.BooleanField(default=False)
     blocked = models.BooleanField(default=False)
     user = models.ForeignKey(
-        User,
+        MyUser,
         verbose_name=("User Unique Code"),
         on_delete=models.PROTECT,
         related_name="user_code",
@@ -164,33 +128,36 @@ class OrgApplication(models.Model):
     decline_reason = models.CharField(max_length=50)
     date_accepted = models.DateField()
     owner = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="user_application"
+        MyUser, on_delete=models.CASCADE, related_name="user_application"
     )
 
 
 class Org(models.Model):
     name = models.CharField(verbose_name=("Organization Name"), max_length=50)
-    date_created = models.DateField()
-    description = models.CharField(max_length=50)
-    logo = models.CharField(max_length=50)
-    background_image = models.CharField(max_length=50)
+    date_created = models.DateField(null=True)
+    description = models.CharField(max_length=50, null=True)
+    logo = models.CharField(max_length=50, null=True)
+    background_image = models.CharField(max_length=50, null=True)
     verified = models.BooleanField(default=False)
     readme = models.CharField(max_length=50, null=True)
-    contact_number = models.CharField(max_length=50)
-    email = models.CharField(max_length=50)
+    contact_number = models.CharField(max_length=50, null=True)
+    email = models.CharField(max_length=50, null=True)
     official = models.BooleanField(default=False)
-    password = models.CharField(verbose_name=("Organization Password"), max_length=50)
-    member_limit = models.IntegerField()
-    restricted = models.BooleanField(default=False)
-    disabled = models.BooleanField(default=False)
-    restriction_type = models.IntegerField()
+    password = models.CharField(
+        verbose_name=("Organization Password"), max_length=50, null=True
+    )
+    member_limit = models.IntegerField(default=50)
+    restricted = models.BooleanField(default=False, null=True)
+    disabled = models.BooleanField(default=False, null=True)
+    restriction_type = models.IntegerField(default=1)
     owner = models.ForeignKey(
-        User,
+        MyUser,
         verbose_name=("Organization Owner"),
         on_delete=models.PROTECT,
         related_name="org_owner",
+        null=True,
     )
-    members = models.ManyToManyField(User, verbose_name=("Organization Member"))
+    members = models.ManyToManyField(MyUser, verbose_name=("Organization Member"))
     user_org_application = models.ManyToManyField(OrgApplication)
 
 
@@ -199,7 +166,7 @@ class UserOrg(models.Model):
     create_blocked = models.BooleanField(default=False)
     org_max_count = models.IntegerField(default=1)
     owner = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="user_org_control"
+        MyUser, on_delete=models.CASCADE, related_name="user_org_control"
     )
     org = models.ManyToManyField(Org, verbose_name=("User Created Organization"))
 
@@ -210,7 +177,7 @@ class Votes(models.Model):
     validated = models.BooleanField(default=False)
     ip_address = models.GenericIPAddressField(protocol="both", unpack_ipv4=True)
     owner = models.ForeignKey(
-        User,
+        MyUser,
         verbose_name=("VOTER"),
         on_delete=models.DO_NOTHING,
         related_name="votes_owner",
@@ -224,7 +191,7 @@ class PollCandidate(models.Model):
     is_winner = models.BooleanField(default=False)
     date_created = models.DateTimeField()
     user = models.ForeignKey(
-        User,
+        MyUser,
         verbose_name=("Candidate"),
         on_delete=models.PROTECT,
         related_name="poll_user_candidate",
@@ -245,7 +212,7 @@ class MainPoll(models.Model):
     notes = models.CharField(max_length=100)
     conditions = models.JSONField()
     owner = models.ForeignKey(
-        User,
+        MyUser,
         verbose_name=("Who created the poll"),
         on_delete=models.PROTECT,
         related_name="poll_creator",
@@ -265,7 +232,7 @@ class Attendance(models.Model):
     time = models.TimeField()
     ip_address = models.GenericIPAddressField(protocol="both", unpack_ipv4=True)
     owner = models.ForeignKey(
-        User,
+        MyUser,
         verbose_name=("Attendance Owner"),
         on_delete=models.DO_NOTHING,
         related_name="attendance_user_owner",
@@ -296,7 +263,9 @@ class Reply(models.Model):
     content = models.TextField()
     date_replied = models.DateTimeField()
     hearts = models.IntegerField()
-    user = models.ForeignKey(User, related_name="reply_owner", on_delete=models.CASCADE)
+    user = models.ForeignKey(
+        MyUser, related_name="reply_owner", on_delete=models.CASCADE
+    )
     reply_replies = models.ForeignKey(
         "self", related_name="reply_of_reply", on_delete=models.CASCADE
     )
@@ -310,6 +279,8 @@ class Post(models.Model):
     hearts = models.IntegerField()
     views = models.IntegerField()
     is_private = models.BooleanField(default=False)
-    user = models.ForeignKey(User, related_name="post_owner", on_delete=models.CASCADE)
+    user = models.ForeignKey(
+        MyUser, related_name="post_owner", on_delete=models.CASCADE
+    )
     org = models.ForeignKey(Org, related_name="post_owner", on_delete=models.CASCADE)
     replies = models.ManyToManyField(Reply)

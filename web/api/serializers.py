@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.utils.safestring import mark_safe
 import secrets
-from api.models import User, UserAuth
+from api.models import MyUser, UserAuth
 from api.models import UserInfo
 from api.models import Badges
 from api.models import OrgApplication
@@ -13,6 +13,14 @@ from api.models import Attendance
 from api.models import Event
 from api.models import Reply
 from api.models import Post
+from api.models import Code
+from api.models import UserOrg
+from datetime import datetime, timedelta
+import datetime
+import uuid
+
+
+# from api.validators import GroupCreatePermission
 
 
 class BadgesSerializer(serializers.ModelSerializer):
@@ -49,7 +57,7 @@ class UserSerializer(serializers.ModelSerializer):
     badges = BadgesSerializer(read_only=True, many=True)
 
     class Meta:
-        model = User
+        model = MyUser
         fields = [
             "id",
             "username",
@@ -61,17 +69,23 @@ class UserSerializer(serializers.ModelSerializer):
             "is_verified",
             "is_teacher",
             "badges",
+            "user_info",
+            "user_org_control",
+            "user_code",
         ]
 
         extra_kwargs = {
             "password": {"write_only": True},
             "id": {"read_only": True},
             "is_active": {"read_only": True},
+            "user_info": {"read_only": True},
+            "user_org_control": {"read_only": True},
+            "user_code": {"read_only": True},
         }
 
     def create(self, validated_data):
 
-        user = User.objects.create(
+        user = MyUser.objects.create(
             username=validated_data["username"],
             email=validated_data["email"],
             first_name=validated_data["first_name"],
@@ -83,13 +97,22 @@ class UserSerializer(serializers.ModelSerializer):
         user.set_password(validated_data["password"])
         user.save()
 
-        milliseconds = 24 * 60 * 60 * 1000
-
         auth = UserAuth.objects.create(
-            one_time_code=secrets.token_hex(6), expiration=milliseconds, owner=user.id
+            one_time_code=secrets.token_hex(6),
+            expiration=datetime.timedelta(days=1),
+            owner=user,
         )
 
         auth.save()
+
+        userInfo = UserInfo.objects.create(user=user)
+        userInfo.save()
+
+        userCode = Code.objects.create(code=uuid.uuid4, user=user)
+        userCode.save()
+
+        userOrg = UserOrg.objects.create(owner=user)
+        userOrg.save()
 
         return user
 
@@ -109,9 +132,6 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserInfoSerializer(serializers.ModelSerializer):
-
-    user = serializers.RelatedField(source="user", read_only=False)
-
     class Meta:
         model = UserInfo
         fields = [
@@ -128,40 +148,22 @@ class UserInfoSerializer(serializers.ModelSerializer):
             "user",
         ]
 
-        extra_kwargs = {"id": {"read_only": True}}
-
-    def create(self, validated_data):
-
-        userInfo = UserInfo.objects.create(
-            year_level=validated_data["year_level"],
-            course=validated_data["course"],
-            section=validated_data["section"],
-            student_id=validated_data["student_id"],
-            date_of_birth=validated_data["date_of_birth"],
-            age=validated_data["age"],
-            profile_image=validated_data["profile_image"],
-            background_image=validated_data["background_image"],
-            read_me=validated_data["read_me"],
-            user=User.objects.get(pk=validated_data["user"]),
-        )
-
-        userInfo.save()
-
-        return userInfo
+        extra_kwargs = {"id": {"read_only": True}, "user": {"read_only": True}}
 
     def update(self, instance, validated_data):
+        info = UserInfo.objects.get(user=instance)
 
         for (key, value) in validated_data.items():
-            setattr(instance, key, value)
+            setattr(info, key, value)
 
-        instance.save()
+        info.save()
 
-        return instance
+        return info
 
 
 class OrgApplicationSerializer(serializers.ModelSerializer):
 
-    owner = serializers.RelatedField(source="owner", read_only=False)
+    owner = serializers.RelatedField(source="owner", read_only=True)
 
     class Meta:
         model = OrgApplication
@@ -185,7 +187,7 @@ class OrgApplicationSerializer(serializers.ModelSerializer):
             is_accepted=validated_data["is_accepted"],
             decline_reason=validated_data["decline_reason"],
             date_accepted=validated_data["date_accepted"],
-            owner=pk=validated_data["user"]
+            owner=validated_data["user"],
         )
 
         orgApp.save()
@@ -203,16 +205,13 @@ class OrgApplicationSerializer(serializers.ModelSerializer):
 
 
 class OrgSerializer(serializers.ModelSerializer):
-
-    owner = serializers.RelatedField(source="owner", read_only=False)
-
     class Meta:
-        model = OrgApplication
+        model = Org
         fields = [
             "id",
-            "create_restricted",
-            "create_blocked",
-            "org_max_count",
+            "name",
+            "date_created",
+            "description",
             "logo",
             "background_image",
             "verified",
@@ -230,31 +229,29 @@ class OrgSerializer(serializers.ModelSerializer):
 
         extra_kwargs = {"id": {"read_only": True}, "password": {"write_only": True}}
 
+    def validate_name(self, name):
+        user_org_restrictions = UserOrg.objects.get(owner=self.context["request"].user)
+
+        if user_org_restrictions.create_restricted is True:
+            raise serializers.ValidationError(
+                "Failed to create organization. User is Restricted"
+            )
+
+        if user_org_restrictions.create_blocked is True:
+            raise serializers.ValidationError(
+                "Failed to create organization. User is Restricted"
+            )
+
+        if (
+            user_org_restrictions.org.all().count() + 1
+            > user_org_restrictions.org_max_count
+        ):
+            raise serializers.ValidationError(
+                "Failed to create organization. Org Limit Reached"
+            )
+
     def create(self, validated_data):
-
-        orgMake = OrgApplication.objects.create(
-            create_restricted=validated_data["create_restricted"],
-            create_blocked=validated_data["create_blocked"],
-            org_max_count=validated_data["org_max_count"],
-            logo=validated_data["logo"],
-            background_image=validated_data["background_image"],
-            verified=validated_data["verified"],
-            readme=validated_data["readme"],
-            contact_number=validated_data["contact_number"],
-            email=validated_data["email"],
-            password=validated_data["password"],
-            member_limit=validated_data["member_limit"],
-            restricted=validated_data["restricted"],
-            disabled=validated_data["disabled"],
-            restriction_type=validated_data["restriction_type"],
-            owner=User.objects.get(pk=validated_data["user"]),
-        )
-
-        orgMake.save()
-
-        return orgMake
-
-    def update(self, instance, validated_data):
+        instance = Org.objects.create(owner=self.context["request"].user)
 
         for (key, value) in validated_data.items():
             setattr(instance, key, value)
@@ -263,10 +260,21 @@ class OrgSerializer(serializers.ModelSerializer):
 
         return instance
 
+    def update(self, instance, validated_data):
+
+        organization = Org.objects.get(pk=validated_data.id)
+
+        for (key, value) in validated_data.items():
+            setattr(organization, key, value)
+
+        organization.save()
+
+        return organization
+
 
 class VotesSerializer(serializers.ModelSerializer):
 
-    owner = serializers.RelatedField(source="owner", read_only=False)
+    owner = serializers.RelatedField(source="owner", read_only=True)
 
     class Meta:
         model = Votes
@@ -286,7 +294,7 @@ class VotesSerializer(serializers.ModelSerializer):
             date_voted=validated_data["date_voted"],
             validated=validated_data["validated"],
             ip_address=validated_data["ip_address"],
-            owner=User.objects.get(pk=validated_data["user"]),
+            owner=MyUser.objects.get(pk=validated_data["user"]),
         )
 
         votesMaker.save()
@@ -305,7 +313,7 @@ class VotesSerializer(serializers.ModelSerializer):
 
 class PollCandidateSerializer(serializers.ModelSerializer):
 
-    user = serializers.RelatedField(source="user", read_only=False)
+    user = serializers.RelatedField(source="user", read_only=True)
 
     class Meta:
         model = PollCandidate
@@ -316,7 +324,7 @@ class PollCandidateSerializer(serializers.ModelSerializer):
             "is_disqualified",
             "is_winner",
             "date_created",
-            "user"
+            "user",
         ]
 
         extra_kwargs = {"id": {"read_only": True}}
@@ -329,7 +337,7 @@ class PollCandidateSerializer(serializers.ModelSerializer):
             is_disqualified=validated_data["is_disqualified"],
             is_winner=validated_data["is_winner"],
             date_created=validated_data["date_created"],
-            user=User.objects.get(pk=validated_data["user"]),
+            user=MyUser.objects.get(pk=validated_data["user"]),
         )
 
         pollMaker.save()
@@ -348,7 +356,7 @@ class PollCandidateSerializer(serializers.ModelSerializer):
 
 class MainPollSerializer(serializers.ModelSerializer):
 
-    owner = serializers.RelatedField(source="owner", read_only=False)
+    owner = serializers.RelatedField(source="owner", read_only=True)
     candidates = PollCandidateSerializer(read_only=True, many=True)
 
     class Meta:
@@ -385,7 +393,7 @@ class MainPollSerializer(serializers.ModelSerializer):
             notes=validated_data["notes"],
             conditions=validated_data["conditions"],
             org=Org.objects.get(pk=validated_data["org"]),
-            owner=User.objects.get(pk=validated_data["owner"]),
+            owner=MyUser.objects.get(pk=validated_data["owner"]),
         )
 
         pollMaker.save()
@@ -404,7 +412,7 @@ class MainPollSerializer(serializers.ModelSerializer):
 
 class AttendanceSerializer(serializers.ModelSerializer):
 
-    owner = serializers.RelatedField(source="owner", read_only=False)
+    owner = serializers.RelatedField(source="owner", read_only=True)
 
     class Meta:
         model = Attendance
@@ -418,7 +426,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
             date=validated_data["date"],
             time=validated_data["time"],
             ip_address=validated_data["ip_address"],
-            owner=User.objects.get(pk=validated_data["owner"])
+            owner=MyUser.objects.get(pk=validated_data["owner"]),
         )
 
         attendanceMaker.save()
@@ -437,7 +445,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
 
 class EventSerializer(serializers.ModelSerializer):
 
-    org = serializers.RelatedField(source="org")
+    org = serializers.RelatedField(source="org", read_only=True)
     event_attendance = AttendanceSerializer(read_only=True, many=True)
 
     class Meta:
@@ -467,7 +475,7 @@ class EventSerializer(serializers.ModelSerializer):
             canceled=validated_data["canceled"],
             started=validated_data["started"],
             description=validated_data["description"],
-            org=Org.objects.get(pk=validated_data["org"])
+            org=Org.objects.get(pk=validated_data["org"]),
         )
 
         EventMaker.save()
@@ -486,8 +494,7 @@ class EventSerializer(serializers.ModelSerializer):
 
 class ReplySerializer(serializers.ModelSerializer):
 
-    user = serializers.RelatedField(source="user")
-    reply_replies = ReplySerializer(read_only=True, many=True)
+    user = serializers.RelatedField(source="user", read_only=True)
 
     class Meta:
         model = Reply
@@ -506,7 +513,7 @@ class ReplySerializer(serializers.ModelSerializer):
             content=validated_data["content"],
             date_replied=validated_data["date_replied"],
             hearts=validated_data["hearts"],
-            user=User.objects.get(pk=validated_data["owner"]),
+            user=MyUser.objects.get(pk=validated_data["owner"]),
         )
 
         replyMaker.save()
@@ -525,7 +532,7 @@ class ReplySerializer(serializers.ModelSerializer):
 
 class PostSerializer(serializers.ModelSerializer):
 
-    user = serializers.RelatedField(source="user")
+    user = serializers.RelatedField(source="user", read_only=True)
 
     class Meta:
         model = Post
@@ -553,8 +560,8 @@ class PostSerializer(serializers.ModelSerializer):
             hearts=validated_data["hearts"],
             views=validated_data["views"],
             is_private=validated_data["is_private"],
-            user=User.objects.get(pk=validated_data["user"]),
-            org=Org.objects.get(pk=validated_data["org"])
+            user=MyUser.objects.get(pk=validated_data["user"]),
+            org=Org.objects.get(pk=validated_data["org"]),
         )
 
         postMaker.save()
