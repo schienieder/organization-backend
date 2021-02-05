@@ -54,11 +54,11 @@ REST_FRAMEWORK = {
 
 AUTH_USER_MODEL = "api.MyUser"
 
-EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS")
-EMAIL_HOST = os.environ.get("EMAIL_HOST")
-EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
-EMAIL_PORT = os.environ.get("EMAIL_PORT")
+EMAIL_USE_TLS = True
+EMAIL_HOST = 'smtp.mailgun.org'
+EMAIL_HOST_USER = 'postmaster@dnsc-sites.live'
+EMAIL_HOST_PASSWORD = '4254a09cead48703cb8e8543a67674de-b6190e87-b19061b7'
+EMAIL_PORT = 587
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(weeks=52),
@@ -85,7 +85,7 @@ ROOT_URLCONF = "web.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [os.path.join(BASE_DIR, 'templates')],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [

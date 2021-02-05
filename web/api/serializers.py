@@ -1,6 +1,9 @@
 from rest_framework import serializers
 from django.utils.safestring import mark_safe
-import secrets
+from django.core.mail import EmailMessage
+from rest_framework import status
+from rest_framework.response import Response
+
 from api.models import MyUser, UserAuth
 from api.models import UserInfo
 from api.models import Badges
@@ -15,10 +18,15 @@ from api.models import Reply
 from api.models import Post
 from api.models import Code
 from api.models import UserOrg
+
+
+from api.mails import MailConfirmation
+
+
 from datetime import datetime, timedelta
 import datetime
 import uuid
-
+import random
 
 # from api.validators import GroupCreatePermission
 
@@ -98,17 +106,29 @@ class UserSerializer(serializers.ModelSerializer):
         user.save()
 
         auth = UserAuth.objects.create(
-            one_time_code=secrets.token_hex(6),
+            one_time_code="".join(
+                [str(random.randint(0, 999)).zfill(3) for _ in range(2)]
+            ),
             expiration=datetime.timedelta(days=1),
             owner=user,
         )
 
         auth.save()
 
+        mail = MailConfirmation({"username": user.username, "code": auth.one_time_code})
+
+        msg = EmailMessage(
+            "Email Confirmation", mail, "noreply@dnsc-sites.live", [user.email]
+        )
+
+        msg.content_subtype = "html"
+
+        msg.send()
+
         userInfo = UserInfo.objects.create(user=user)
         userInfo.save()
 
-        userCode = Code.objects.create(code=uuid.uuid4, user=user)
+        userCode = Code.objects.create(code=uuid.uuid4().hex, user=user)
         userCode.save()
 
         userOrg = UserOrg.objects.create(owner=user)
@@ -241,7 +261,7 @@ class OrgSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Failed to create organization. User is Restricted"
             )
-
+        print(user_org_restrictions.org.all().count())
         if (
             user_org_restrictions.org.all().count() + 1
             > user_org_restrictions.org_max_count
@@ -252,17 +272,60 @@ class OrgSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         instance = Org.objects.create(owner=self.context["request"].user)
-
+        user_org_main = UserOrg.objects.get(owner=self.context["request"].user)
+        
         for (key, value) in validated_data.items():
             setattr(instance, key, value)
 
         instance.save()
 
+        user_org_main.org.add(instance)
         return instance
 
-    def update(self, instance, validated_data):
 
-        organization = Org.objects.get(pk=validated_data.id)
+class OrgSerializerSecond(serializers.ModelSerializer):
+    class Meta:
+        model = Org
+        fields = [
+            "id",
+            "name",
+            "date_created",
+            "description",
+            "logo",
+            "background_image",
+            "verified",
+            "readme",
+            "contact_number",
+            "email",
+            "official",
+            "password",
+            "member_limit",
+            "restricted",
+            "disabled",
+            "restriction_type",
+            "owner",
+        ]
+
+        extra_kwargs = {"id": {"read_only": True}, "password": {"write_only": True}}
+
+    def update(self, instance, validated_data):
+        try:
+
+            organization = Org.objects.get(pk=instance["data"]["id"])
+
+            if organization.owner is not instance["user"]:
+
+                error = serializers.ValidationError(
+                    {"message": "Invalid Permission, Only Owner can alter org"}
+                )
+                error.status_code = 405
+                raise error
+
+        except Org.DoesNotExist:
+
+            error = serializers.ValidationError({"message": "Organization Not Found"})
+            error.status_code = 404
+            raise error
 
         for (key, value) in validated_data.items():
             setattr(organization, key, value)

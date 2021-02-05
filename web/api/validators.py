@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 
-class MultipleOf:
+class GroupCreatePermission:
     def __init__(self, base):
         self.base = base
 
