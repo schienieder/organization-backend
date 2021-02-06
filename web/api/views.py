@@ -13,6 +13,7 @@ from api.serializers import UserSerializer
 from api.serializers import UserInfoSerializer
 from api.serializers import OrgSerializer
 from api.serializers import OrgSerializerSecond
+from api.serializers import OrgApplicationSerializer
 
 
 from api.models import MyUser
@@ -124,10 +125,12 @@ class DeleteOrganization(generics.DestroyAPIView):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.owner is not request.user:
-            return Response({'message':'Invalid Permission'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"message": "Invalid Permission"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         self.perform_destroy(instance)
-        return Response({'message': 'Organization Deleted'}, status=status.HTTP_200_OK)
+        return Response({"message": "Organization Deleted"}, status=status.HTTP_200_OK)
 
 
 class RetriveOrganization(generics.RetrieveAPIView):
@@ -140,17 +143,59 @@ class GetAllOrganization(generics.RetrieveAPIView):
     serializer_class = OrgSerializer
 
     def get(self, request, **kwargs):
-        queryset =  Org.objects.all()[:kwargs.get("limit")]
+        queryset = Org.objects.all()[: kwargs.get("limit")]
         return Response(queryset, status=status.HTTP_200_OK)
 
 
 class GetSpecificOrganization(generics.RetrieveAPIView):
     permission_classes = (IsAuthenticated,)
     serializer_class = OrgSerializer
-    
-    def get(self, request, **kwargs):
-        print(kwargs.get("name"))
-        queryset =  Org.objects.filter(name__icontains=kwargs.get("name"))
-        return Response(queryset, status=status.HTTP_200_OK)
 
-class JoinOrganization(generics.RetrieveAPIView):
+    def get(self, request, **kwargs):
+        serializer = self.serializer_class()
+        queryset = Org.objects.filter(name__icontains=kwargs.get("name"))
+        serializer = self.serializer_class(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class JoinOrganization(generics.CreateAPIView):
+
+    permission_classes = (IsAuthenticated,)
+    serializer_class = OrgApplicationSerializer
+
+    def create(self, request, *args, **kwargs):
+
+        org_id = request.data["org_id"]
+
+        if org_id is None:
+            return Response(
+                {"message": "Organization Error, Please try again later."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = self.serializer_class(
+            data=request.data, context={"request": request, "org_id": org_id}
+        )
+
+        if serializer.is_valid(raise_exception=True):
+
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AcceptOrganizationApplication(generics.UpdateAPIView):
+    permission_classes = (IsAuthenticated,)
+
+    serializer_class = OrgApplicationSerializer
+
+    def update(self, request, *args, **kwargs):
+        instance = {"user": request.user, "data": request.data}
+        serializer = self.serializer_class(instance, data=request.data, partial=True)
+
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

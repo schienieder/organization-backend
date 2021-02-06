@@ -12,6 +12,7 @@ from api.views import DeleteOrganization
 from api.views import RetriveOrganization
 from api.views import GetAllOrganization
 from api.views import GetSpecificOrganization
+from api.views import JoinOrganization
 
 router = routers.DefaultRouter()
 
@@ -45,5 +46,10 @@ urlpatterns = [
     path("api/org/destroy/<int:pk>", DeleteOrganization.as_view(), name="orgDestroy"),
     path("api/org/get/<int:pk>", RetriveOrganization.as_view(), name="orgGet"),
     path("api/org/get/all/<int:limit>", GetAllOrganization.as_view(), name="orgGetAll"),
-    path("api/org/get/<slug:name>", GetSpecificOrganization.as_view(), name="orgGetSpecific"),
+    path(
+        "api/org/get/name/<slug:name>",
+        GetSpecificOrganization.as_view(),
+        name="orgGetSpecific",
+    ),
+    path("api/org/join/", JoinOrganization.as_view(), name="orgJoin"),
 ]

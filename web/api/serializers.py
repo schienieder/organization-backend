@@ -3,6 +3,8 @@ from django.utils.safestring import mark_safe
 from django.core.mail import EmailMessage
 from rest_framework import status
 from rest_framework.response import Response
+from django.core.exceptions import ObjectDoesNotExist
+
 
 from api.models import MyUser, UserAuth
 from api.models import UserInfo
@@ -18,7 +20,7 @@ from api.models import Reply
 from api.models import Post
 from api.models import Code
 from api.models import UserOrg
-
+from api.models import OrgMembers
 
 from api.mails import MailConfirmation
 
@@ -118,7 +120,7 @@ class UserSerializer(serializers.ModelSerializer):
         mail = MailConfirmation({"username": user.username, "code": auth.one_time_code})
 
         msg = EmailMessage(
-            "Email Confirmation", mail, "noreply@dnsc-sites.live", [user.email]
+            "Email Confirmation", mail, "noreply@dnscicsa.tech", [user.email]
         )
 
         msg.content_subtype = "html"
@@ -182,9 +184,6 @@ class UserInfoSerializer(serializers.ModelSerializer):
 
 
 class OrgApplicationSerializer(serializers.ModelSerializer):
-
-    owner = serializers.RelatedField(source="owner", read_only=True)
-
     class Meta:
         model = OrgApplication
         fields = [
@@ -201,27 +200,109 @@ class OrgApplicationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
 
-        orgApp = OrgApplication.objects.create(
+        org_instance = Org.objects.get(pk=self.context["org_id"])
+
+        if org_instance.owner is self.context["request"].user:
+            error = serializers.ValidationError(
+                {
+                    "message": "You cant send an application to an organization you own",
+                    "code": "400",
+                }
+            )
+            error.status_code = 405
+            raise error
+
+        try:
+            org_user_application_instance = org_instance.user_org_application.get(
+                owner=self.context["request"].user
+            )
+        except ObjectDoesNotExist:
+            org_user_application_instance = None
+
+        if org_user_application_instance is not None:
+            error = serializers.ValidationError(
+                {"message": "You already have a pending application", "code": "401"}
+            )
+            error.status_code = 405
+            raise error
+
+        org_application_instance = OrgApplication.objects.create(
             date_created=validated_data["date_created"],
-            flagged=validated_data["flagged"],
-            is_accepted=validated_data["is_accepted"],
-            decline_reason=validated_data["decline_reason"],
-            date_accepted=validated_data["date_accepted"],
-            owner=validated_data["user"],
+            owner=self.context["request"].user,
         )
 
-        orgApp.save()
+        for (key, value) in validated_data.items():
+            setattr(org_application_instance, key, value)
 
-        return orgApp
+        org_application_instance.save()
+
+        org_instance.user_org_application.add(org_application_instance)
+        return org_application_instance
 
     def update(self, instance, validated_data):
+        try:
 
-        for (key, value) in validated_data.items():
-            setattr(instance, key, value)
+            org_instance = Org.objects.get(pk=instance["data"]["org_id"])
+            applicant_instance = MyUser.objects.get(pk=instance["data"]["applicant_id"])
 
-        instance.save()
+            try:
 
-        return instance
+                org_user_application_instance = org_instance.user_org_application.get(
+                    owner=applicant_instance
+                )
+
+            except ObjectDoesNotExist:
+
+                error = serializer.ValidationError(
+                    {"message": "Application Not found", "code": "403"}
+                )
+                error.status_code = 401
+                raise error
+
+            if org_instance.owner is not instance["user"]:
+
+                error = serializers.ValidationError(
+                    {
+                        "message": "Invalid Permission",
+                        "code": "405",
+                    }
+                )
+                error.status_code = 405
+                raise error
+
+        except Org.DoesNotExist:
+
+            error = serializers.ValidationError(
+                {"message": "Organization Not Found", "code": "404"}
+            )
+            error.status_code = 404
+            raise error
+
+        if instance["data"]["decline"] is not True:
+
+            try:
+                org_instance.members.get(owner=applicant_instance)
+                error = serializers.ValidationError(
+                    {"message": "User is already a member of this org"}
+                )
+                error.status_code = 405
+                raise error
+            except ObjectDoesNotExist:
+                org_member_instance = OrgMembers.objects.create(
+                    date_joined=instance["data"]["date_accepted"],
+                    owner=applicant_instance,
+                )
+                org_member_instance.save()
+
+                org_instance.members.add(org_member_instance)
+                org_instance.user_org_application.remove(org_user_application_instance)
+
+        else:
+
+            org_instance.user_org_application.remove(org_user_application_instance)
+            org_user_application_instance.delete()
+
+        return {"message": "Done"}
 
 
 class OrgSerializer(serializers.ModelSerializer):
@@ -261,7 +342,6 @@ class OrgSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Failed to create organization. User is Restricted"
             )
-        print(user_org_restrictions.org.all().count())
         if (
             user_org_restrictions.org.all().count() + 1
             > user_org_restrictions.org_max_count
@@ -270,10 +350,12 @@ class OrgSerializer(serializers.ModelSerializer):
                 "Failed to create organization. Org Limit Reached"
             )
 
+        return name
+
     def create(self, validated_data):
         instance = Org.objects.create(owner=self.context["request"].user)
         user_org_main = UserOrg.objects.get(owner=self.context["request"].user)
-        
+
         for (key, value) in validated_data.items():
             setattr(instance, key, value)
 

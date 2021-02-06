@@ -123,12 +123,15 @@ class Code(models.Model):
 
 class OrgApplication(models.Model):
     date_created = models.DateField()
-    flagged = models.BooleanField(default=False)
-    is_accepted = models.BooleanField(default=False)
-    decline_reason = models.CharField(max_length=50)
-    date_accepted = models.DateField()
     owner = models.ForeignKey(
-        MyUser, on_delete=models.CASCADE, related_name="user_application"
+        MyUser, on_delete=models.CASCADE, related_name="user_application", null=True
+    )
+
+
+class OrgMembers(models.Model):
+    date_joined = models.DateField()
+    owner = models.ForeignKey(
+        MyUser, on_delete=models.CASCADE, related_name="user_org_membership", null=True
     )
 
 
@@ -157,7 +160,7 @@ class Org(models.Model):
         related_name="org_owner",
         null=True,
     )
-    members = models.ManyToManyField(MyUser, verbose_name=("Organization Member"))
+    members = models.ManyToManyField(OrgMembers, verbose_name=("Organization Member"))
     user_org_application = models.ManyToManyField(OrgApplication)
 
 
