@@ -202,6 +202,36 @@ class OrgApplicationSerializer(serializers.ModelSerializer):
 
         org_instance = Org.objects.get(pk=self.context["org_id"])
 
+        if org_instance.password is not None and org_instance.password is not self.context['org_password']:
+            error = serializers.ValidationError({
+                "message": "Organization Password is Incorrect",
+                "code": 409
+            })
+
+            error.status_code = 401
+
+            raise error
+
+        if org_instance.members.all().count() == org_instance.member_limit:
+            error = serializers.ValidationError({
+                "message": "Member Limit Reached, Please contact the organization owner for assistance",
+                "code": "400"
+            })
+
+            error.status_code = 401
+
+            raise error
+
+        if org_instance.restricted is True or org_instance.disabled is True:
+            error = serializers.ValidationError({
+                "message": "Organization is Restricted or Disabled, Please contact the organization owner for assistance",
+                "code": "403"
+            })
+
+            error.status_code = 401
+
+            raise error
+
         if org_instance.owner is self.context["request"].user:
             error = serializers.ValidationError(
                 {
